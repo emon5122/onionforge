@@ -1,0 +1,40 @@
+name: Bug report
+description: Something doesn't work as documented
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! **Never paste private keys** (`hs_ed25519_secret_key`). Onion addresses and targets can be redacted.
+        For security vulnerabilities, use [private reporting](https://github.com/emon5122/onionforge/security/advisories/new) instead.
+  - type: input
+    id: version
+    attributes:
+      label: OnionForge version
+      description: Output of `docker run --rm emon5122/onionforge version` (or the image tag/digest)
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: onionforge.yml
+      description: Your configuration (redact as needed).
+      render: yaml
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Output of `docker compose logs onionforge`, plus `onionforge list` if relevant.
+      render: text
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Host OS / architecture, Docker version, Compose or plain docker run

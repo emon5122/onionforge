@@ -1,6 +1,21 @@
+<div align="center">
+
 # OnionForge
 
-> **Publish any HTTP service as a persistent Tor Onion Service — without changing the application.**
+**Publish any HTTP service as a persistent Tor Onion Service — without changing the application.**
+
+[![CI](https://github.com/emon5122/onionforge/actions/workflows/ci.yml/badge.svg)](https://github.com/emon5122/onionforge/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/emon5122/onionforge?sort=semver&display_name=tag)](https://github.com/emon5122/onionforge/releases)
+[![Docker Image](https://img.shields.io/docker/image-size/emon5122/onionforge/latest?label=image)](https://hub.docker.com/r/emon5122/onionforge)
+[![Docker Pulls](https://img.shields.io/docker/pulls/emon5122/onionforge)](https://hub.docker.com/r/emon5122/onionforge)
+[![Go Report Card](https://goreportcard.com/badge/github.com/emon5122/onionforge)](https://goreportcard.com/report/github.com/emon5122/onionforge)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+[Quick start](#quick-start) · [Configuration](#onionforgeyml-reference) · [Security](#security) · [Docker Hub](https://hub.docker.com/r/emon5122/onionforge)
+
+</div>
+
+---
 
 OnionForge is a Docker-native, multi-service Tor reverse-proxy gateway. It manages persistent Tor v3 onion identities and uses [Caddy](https://caddyserver.com) to route each onion hostname to an existing HTTP/HTTPS service on your Docker network or to an external upstream.
 

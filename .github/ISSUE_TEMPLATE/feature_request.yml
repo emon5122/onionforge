@@ -1,0 +1,20 @@
+name: Feature request
+description: Suggest an improvement
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and why is it hard today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How would you like it to work? Example `onionforge.yml` snippets are very welcome.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
