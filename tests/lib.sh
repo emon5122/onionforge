@@ -72,7 +72,9 @@ wait_healthy() {
 wait_log() {
   local pattern="$1" timeout="${2:-60}"
   for _ in $(seq "$timeout"); do
-    compose logs --no-color onionforge 2>/dev/null | grep -qF -- "$pattern" && return 0
+    # Capture first: "producer | grep -q" fails under pipefail when grep
+    # exits early and the producer gets SIGPIPE.
+    contains "$(compose logs --no-color onionforge 2>/dev/null)" "$pattern" && return 0
     sleep 1
   done
   return 1

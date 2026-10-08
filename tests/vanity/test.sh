@@ -25,7 +25,7 @@ check "healthy after recreate" wait_healthy 60
 check "vanity identity persists" test "$(onion radio)" = "$R"
 check "no regeneration" not_contains "$(compose logs --no-color onionforge)" "generating vanity onion identity with prefix 'radio'"
 
-log "Background vanity searches"
+log "Combined background vanity search"
 compose down -v >/dev/null 2>&1
 printf '%s\n' 'vanity:
   background: always
@@ -36,22 +36,55 @@ services:
   bg:
     prefix: [xyz, qq]
     target: http://backend:8080
+  bg2:
+    prefix: ab2
+    target: http://backend:8080
   slow:
     prefix: zzzzzzzzzz
     target: http://backend:8080' >"$ONIONFORGE_CONFIG_FILE"
 compose up -d >/dev/null 2>&1
-check "healthy while searches run" wait_healthy 60
+check "healthy while searching" wait_healthy 60
 check "other services published immediately" docker exec "$(gw_container)" test -s /var/lib/tor/web/hostname
-check "background search finished and published" wait_log "Service 'bg': identity created" 120
+check "one combined search for all pending services" wait_log "Vanity search running in the background for 3 services" 30
+check "first service found and published" wait_log "Service 'bg': identity created" 120
+check "second service found and published" wait_log "Service 'bg2': identity created" 120
 check "published without restarting Tor" wait_log "Onion services changed; reloading Tor" 30
+check "search continues for the remaining service" wait_log "Vanity search running in the background for 1 service: slow 'zzzzzzzzzz'" 60
 sleep 3
 B="$(onion bg)"
-check "background address matches one of the prefixes" bash -c '[[ "$1" == xyz* || "$1" == qq* ]]' _ "$B"
+check "bg address matches one of its prefixes" bash -c '[[ "$1" == xyz* || "$1" == qq* ]]' _ "$B"
+check "bg2 address matches its prefix" bash -c '[[ "$1" == ab2* ]]' _ "$(onion bg2)"
 check "background service routed" contains "$(onion_curl bg /bg)" "GET /bg HTTP/1.1"
-check "speed estimate logged" wait_log "expected time" 30
+check "per-service estimate logged" wait_log "slow 'zzzzzzzzzz':" 30
+gens() { docker exec "$(gw_container)" sh -c 'for p in /proc/[0-9]*; do c=$(cat $p/comm 2>/dev/null); case "$c" in onion-vanity*) echo ${p#/proc/};; esac; done'; }
+check "exactly one generator process" test "$(gens | wc -l)" = 1
 out="$(docker exec "$(gw_container)" onionforge list)"
 check "list shows running search with estimate" contains "$out" "searching for 'zzzzzzzzzz', running"
 check "still healthy" gw_healthy
+
+log "Unrelated config changes keep the search running"
+PID="$(gens)"
+printf '%s\n' 'vanity:
+  background: always
+  threads: 2
+services:
+  web:
+    target: http://backend:8080/v2
+  bg:
+    prefix: [xyz, qq]
+    target: http://backend:8080
+  bg2:
+    prefix: ab2
+    target: http://backend:8080
+  extra:
+    target: http://backend:8080
+  slow:
+    prefix: zzzzzzzzzz
+    target: http://backend:8080' >"$ONIONFORGE_CONFIG_FILE"
+compose kill -s HUP onionforge >/dev/null 2>&1
+check "reload applied" wait_log "Service 'extra': identity created" 30
+sleep 2
+check "same generator process after adding a site and changing a target" test "$(gens)" = "$PID"
 
 log "Reload cancels a search that is no longer wanted"
 printf '%s\n' 'vanity:
@@ -65,7 +98,8 @@ services:
   slow:
     target: http://backend:8080' >"$ONIONFORGE_CONFIG_FILE"
 compose kill -s HUP onionforge >/dev/null 2>&1
-check "search cancelled" wait_log "Service 'slow': background vanity search cancelled" 30
+check "search cancelled" wait_log "Service 'slow': vanity search cancelled" 30
 check "service published with a random address instead" wait_log "Service 'slow': identity created" 30
 check "background address unchanged" test "$(onion bg)" = "$B"
-check "no generator left running" bash -c '! docker exec "$1" sh -c "cat /proc/[0-9]*/comm" | grep -q onion-vanity' _ "$(gw_container)"
+sleep 2
+check "no generator left running" test -z "$(gens)"

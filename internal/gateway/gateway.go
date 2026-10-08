@@ -49,8 +49,11 @@ type Gateway struct {
 	caddy *process
 	exits chan exitEvent
 
-	jobs      map[string]*vanityJob
-	jobEvents chan jobEvent
+	pending       map[string]*pendingService
+	search        *vanitySearch
+	searchThreads int
+	vanityRate    float64 // measured keys/s, reused across searches
+	jobEvents     chan jobEvent
 
 	torBootstrapped atomic.Bool
 	state           State
@@ -80,7 +83,7 @@ func Run(p Paths, log *Logger, version string) error {
 	}()
 
 	g := &Gateway{paths: p, log: log, exits: make(chan exitEvent, 4),
-		jobs: map[string]*vanityJob{}, jobEvents: make(chan jobEvent, 8)}
+		pending: map[string]*pendingService{}, jobEvents: make(chan jobEvent, 8)}
 	g.state = State{
 		Status:      StatusStarting,
 		PID:         os.Getpid(),
@@ -489,11 +492,14 @@ func (g *Gateway) updateServiceState() {
 			continue
 		}
 		ps := PendingState{Name: svc.Name, Prefixes: svc.Prefix, Target: svc.Target}
-		if job, ok := g.jobs[svc.Name]; ok {
-			ps.Started = job.started
-			ps.KeysPerSecond = job.rate
-			ps.MedianSeconds = job.estimate.Median.Seconds()
-			ps.P90Seconds = job.estimate.P90.Seconds()
+		if p, ok := g.pending[svc.Name]; ok {
+			ps.Started = p.queued
+			if g.vanityRate > 0 {
+				est := g.estimateFor(p)
+				ps.KeysPerSecond = g.vanityRate
+				ps.MedianSeconds = est.Median.Seconds()
+				ps.P90Seconds = est.P90.Seconds()
+			}
 		}
 		g.state.Pending = append(g.state.Pending, ps)
 	}

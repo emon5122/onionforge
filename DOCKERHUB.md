@@ -68,7 +68,7 @@ Open the address in [Tor Browser](https://www.torproject.org/download/). No `por
 
 - **Many services, one container:** one Tor process and one Caddy route any number of onion addresses to any number of upstreams.
 - **Persistent identities:** each address is tied to the service name and survives restarts, recreation and image upgrades. Changing a target keeps the address.
-- **Vanity prefixes:** generated once with the bundled [`onion-vanity-address`](https://github.com/offset/onion-vanity-address). You can give several alternative prefixes. Long searches (hours to days) run in the background at low priority with a live time estimate, and the service is published automatically when the key is found.
+- **Vanity prefixes:** generated once with the bundled [`onion-vanity-address`](https://github.com/offset/onion-vanity-address). You can give several alternative prefixes. Long searches (hours to days) run as one combined background search for all waiting services, at low priority and with a live time estimate. Each service is published automatically when its key is found.
 - **Docker-native:** targets like `http://backend:8000` resolve through Docker DNS, and backends need no published ports.
 - **HTTPS and external upstreams:** correct SNI, certificate verification on by default, and per-service private CAs.
 - **Full HTTP:** WebSockets, Server-Sent Events, streaming, uploads, cookies, and optional `Location` redirect rewriting.

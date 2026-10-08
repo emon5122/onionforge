@@ -345,9 +345,11 @@ services:
 A search taking hours or days doesn't hold up the rest of the gateway. With the default `vanity.background: auto`, prefixes of **7 or more characters** are searched in the background:
 
 - **Other services first:** every other service starts and is published immediately.
-- **Automatic publishing:** when the key is found, the service is published automatically. Tor reloads its configuration (no restart) and Caddy reloads gracefully.
+- **One combined search:** all waiting services share a single search. Every key is checked against every waiting prefix, so each service gets the full machine and no matching key is wasted.
+- **Automatic publishing:** when a key matches, that service is published right away. Tor reloads its configuration (no restart) and Caddy reloads gracefully. The search continues for the services still waiting.
+- **Overlapping prefixes:** if a key matches several services (for example `ab` and `abc`), it goes to the longest, rarest prefix.
 - **Low priority:** the search runs at the lowest CPU priority (`nice 19`), so it never slows down Tor or Caddy.
-- **Progress:** logs show the measured speed, the expected time and periodic updates. `onionforge list` shows the running search:
+- **Progress:** logs show the measured speed and an expected time per service. `onionforge list` shows the running search:
 
 ```
 SERVICE  STATUS                                                                        ONION  TARGET
@@ -360,7 +362,15 @@ vanity:
   threads: 0         # CPU threads for the search; 0 = all CPUs
 ```
 
-Searches are memoryless: restarting the container loses no expected progress, so there's no checkpointing. Changing or removing the prefix (with a reload) cancels the search. For very long searches you can also generate the key on a bigger machine with `onion-vanity-address` and [import it](#backup-and-restore). OnionForge then uses it immediately.
+**Changing the configuration loses nothing.** A search has no partial progress: every key is an independent lottery ticket, and the expected time remaining is the same whether it started a minute or a day ago. So:
+
+| Change (then `SIGHUP`) | Effect on a running search |
+|---|---|
+| Add or remove a site without a long prefix, change targets or options | keeps running untouched |
+| Add, remove or change a long prefix | the combined search restarts with the new prefix set (no expected loss) |
+| Restart the container | restarts (no expected loss) |
+
+A key is written to the volume the moment it's found, so a finished search is never lost. For very long searches you can also generate the key on a bigger machine with `onion-vanity-address` and [import it](#backup-and-restore). OnionForge then uses it immediately.
 
 ### Trust
 
