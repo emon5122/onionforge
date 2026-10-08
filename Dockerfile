@@ -4,7 +4,7 @@
 # Multi-arch: build with `docker buildx build --platform linux/amd64,linux/arm64 .`
 
 ARG GO_VERSION=1.25
-ARG CADDY_VERSION=2.10
+ARG CADDY_VERSION=2.11
 ARG DEBIAN_VERSION=trixie
 
 # ---------------------------------------------------------------------------
