@@ -1,0 +1,3 @@
+services:
+  radiolens:
+    target: ftp://example.com

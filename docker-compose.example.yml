@@ -1,0 +1,48 @@
+# Example: publish an existing application as onion services.
+#
+# 1. Create onionforge.yml next to this file:
+#
+#      services:
+#        api:
+#          prefix: api
+#          target: http://backend:8080
+#        web:
+#          prefix: web
+#          target: http://frontend:3000
+#
+# 2. docker compose -f docker-compose.example.yml up -d
+# 3. docker compose -f docker-compose.example.yml logs onionforge
+#
+# The application containers are unchanged: no Tor, no published ports.
+
+services:
+
+  backend:
+    image: jmalloc/echo-server:latest   # replace with your API
+    expose:
+      - "8080"
+    networks:
+      - internal
+
+  frontend:
+    image: caddy:2                      # replace with your web app
+    command: ["caddy", "respond", "--listen", ":3000", "--body", "Hello from the onion side"]
+    networks:
+      - internal
+
+  onionforge:
+    image: emon5122/onionforge:latest
+    restart: unless-stopped
+    volumes:
+      # Onion identities (private keys). Never lose this volume.
+      - onionforge-data:/var/lib/tor
+      - ./onionforge.yml:/etc/onionforge/onionforge.yml:ro
+    networks:
+      - internal
+    # No `ports:` — the services are reachable only through Tor.
+
+networks:
+  internal:
+
+volumes:
+  onionforge-data:

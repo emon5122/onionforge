@@ -1,0 +1,7 @@
+services:
+  a:
+    prefix: web
+    target: http://a:1
+  b:
+    prefix: web
+    target: http://b:1

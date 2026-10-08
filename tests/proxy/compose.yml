@@ -1,0 +1,14 @@
+services:
+  backend:
+    image: jmalloc/echo-server:latest
+    expose: ["8080"]
+  redirector:
+    image: caddy:2.10
+    command: ["caddy", "respond", "--listen", ":80", "--status", "302", "--header", "Location: http://redirector/landing?x=1"]
+  onionforge:
+    image: ${ONIONFORGE_IMAGE}
+    volumes:
+      - data:/var/lib/tor
+      - ${ONIONFORGE_CONFIG_FILE}:/etc/onionforge/onionforge.yml:ro
+volumes:
+  data:

@@ -1,0 +1,4 @@
+services:
+  api:
+    prefix: api-v1
+    target: http://backend:8000

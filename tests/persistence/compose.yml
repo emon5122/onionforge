@@ -1,0 +1,12 @@
+services:
+  backend:
+    image: jmalloc/echo-server:latest
+  backend2:
+    image: jmalloc/echo-server:latest
+  onionforge:
+    image: ${ONIONFORGE_IMAGE}
+    volumes:
+      - data:/var/lib/tor
+      - ${ONIONFORGE_CONFIG_FILE}:/etc/onionforge/onionforge.yml:ro
+volumes:
+  data:

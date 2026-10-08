@@ -1,0 +1,15 @@
+services:
+  backend:
+    image: jmalloc/echo-server:latest
+  onionforge:
+    image: ${ONIONFORGE_IMAGE}
+    volumes:
+      - data:/var/lib/tor
+      - ${ONIONFORGE_CONFIG_FILE}:/etc/onionforge/onionforge.yml:ro
+  torclient:
+    image: ${ONIONFORGE_IMAGE}
+    entrypoint: ["tor", "--SocksPort", "127.0.0.1:9050", "--DataDirectory", "/tmp/tor-client"]
+    healthcheck:
+      disable: true
+volumes:
+  data:

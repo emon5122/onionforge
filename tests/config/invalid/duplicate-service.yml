@@ -1,0 +1,5 @@
+services:
+  api:
+    target: http://backend:8000
+  api:
+    target: http://backend:9000

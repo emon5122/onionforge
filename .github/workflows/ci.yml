@@ -1,0 +1,39 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Vet
+        run: go vet ./...
+      - name: Unit tests
+        run: go test -race ./...
+      - name: Build test image
+        run: docker build -t emon5122/onionforge:test .
+      - name: Integration tests
+        env:
+          ONIONFORGE_SKIP_BUILD: "1"
+        run: tests/run.sh config multi-service proxy persistence vanity
+
+  tor-e2e:
+    # Real Tor network round-trip; informative, not gating (the Tor network
+    # can be slow to bootstrap on CI runners).
+    runs-on: ubuntu-latest
+    needs: test
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t emon5122/onionforge:test .
+      - run: ONIONFORGE_SKIP_BUILD=1 tests/run.sh tor

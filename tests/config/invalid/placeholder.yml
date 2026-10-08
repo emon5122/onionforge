@@ -1,0 +1,3 @@
+services:
+  api:
+    target: http://{http.request.host}:80

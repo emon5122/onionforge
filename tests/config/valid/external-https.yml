@@ -1,0 +1,5 @@
+services:
+  company:
+    prefix: company
+    target: https://example.com
+    rewrite_redirects: true

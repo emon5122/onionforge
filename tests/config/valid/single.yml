@@ -1,0 +1,4 @@
+services:
+  backend:
+    prefix: test
+    target: http://backend:8000
