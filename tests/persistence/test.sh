@@ -49,7 +49,7 @@ write_config 'services:
   web:
     target: http://backend:8080'
 compose kill -s HUP onionforge >/dev/null 2>&1
-check "reload completes" wait_log "Reload complete" 30
+check "reload completes" wait_log "Configuration applied" 30
 check "Tor not reloaded for a target change" wait_log "Onion services unchanged; Tor is not restarted" 5
 check "api address unchanged after target change" test "$(onion api)" = "$API1"
 check "new target in use" contains "$(onion_curl api /x)" "GET /v2/x HTTP/1.1"

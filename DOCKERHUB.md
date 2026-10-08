@@ -68,7 +68,7 @@ Open the address in [Tor Browser](https://www.torproject.org/download/). No `por
 
 - **Many services, one container:** one Tor process and one Caddy route any number of onion addresses to any number of upstreams.
 - **Persistent identities:** each address is tied to the service name and survives restarts, recreation and image upgrades. Changing a target keeps the address.
-- **Vanity prefixes:** generated once with the bundled [`onion-vanity-address`](https://github.com/offset/onion-vanity-address).
+- **Vanity prefixes:** generated once with the bundled [`onion-vanity-address`](https://github.com/offset/onion-vanity-address). You can give several alternative prefixes. Long searches (hours to days) run in the background at low priority with a live time estimate, and the service is published automatically when the key is found.
 - **Docker-native:** targets like `http://backend:8000` resolve through Docker DNS, and backends need no published ports.
 - **HTTPS and external upstreams:** correct SNI, certificate verification on by default, and per-service private CAs.
 - **Full HTTP:** WebSockets, Server-Sent Events, streaming, uploads, cookies, and optional `Location` redirect rewriting.
@@ -90,7 +90,7 @@ Open the address in [Tor Browser](https://www.torproject.org/download/). No `por
 ```yaml
 services:
   api:
-    prefix: api                      # optional, a-z and 2-7, max 10 chars
+    prefix: api                      # optional, a-z and 2-7, max 10 chars; or a list [api, web]
     target: http://backend:8000      # http:// or https://, optional base path
   company:
     target: https://company.example
@@ -99,6 +99,10 @@ services:
     target: https://backend:8443
     tls:
       ca_file: /etc/onionforge/ca.pem
+
+vanity:
+  background: auto                   # long prefixes don't block startup
+  threads: 0                         # CPU threads for the search (0 = all)
 
 security:                            # all false by default
   allow_private_targets: false

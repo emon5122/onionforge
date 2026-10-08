@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Test vector published in the onion-vanity-address README.
@@ -140,7 +142,7 @@ func fakeGenerator(t *testing.T, secret string) string {
 }
 
 func TestGenerateVanity(t *testing.T) {
-	kp, err := GenerateVanity(context.Background(), fakeGenerator(t, vectorSecret), "hidden")
+	kp, err := GenerateVanity(context.Background(), VanityOptions{Binary: fakeGenerator(t, vectorSecret), Prefixes: []string{"hidden"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,10 +150,48 @@ func TestGenerateVanity(t *testing.T) {
 		t.Errorf("hostname = %s", kp.Hostname)
 	}
 	// Output that does not match the requested prefix is rejected.
-	if _, err := GenerateVanity(context.Background(), fakeGenerator(t, vectorSecret), "other"); err == nil {
+	if _, err := GenerateVanity(context.Background(), VanityOptions{Binary: fakeGenerator(t, vectorSecret), Prefixes: []string{"other"}}); err == nil {
 		t.Error("expected prefix mismatch error")
 	}
-	if _, err := GenerateVanity(context.Background(), fakeGenerator(t, "!!!"), "hidden"); err == nil {
+	// Any of several alternatives is accepted.
+	if _, err := GenerateVanity(context.Background(), VanityOptions{Binary: fakeGenerator(t, vectorSecret), Prefixes: []string{"other", "hidd"}}); err != nil {
+		t.Errorf("alternative prefix rejected: %v", err)
+	}
+	if _, err := GenerateVanity(context.Background(), VanityOptions{Binary: fakeGenerator(t, "!!!"), Prefixes: []string{"hidden"}}); err == nil {
 		t.Error("expected malformed output error")
+	}
+}
+
+func TestBenchmarkVanity(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "gen")
+	os.WriteFile(p, []byte("#!/bin/sh\necho 'Stopped searching [zz]... after 5s and 670000000 attempts (134000000 attempts/s)' >&2\nexit 2\n"), 0o755)
+	rate, err := BenchmarkVanity(context.Background(), VanityOptions{Binary: p}, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rate != 134000000 {
+		t.Errorf("rate = %v", rate)
+	}
+}
+
+func TestEstimateVanity(t *testing.T) {
+	// 8 characters at 134M keys/s: mean 32^8/134e6 ≈ 8205 s.
+	est := EstimateVanity([]string{"nexisltd"}, 134e6)
+	mean := math.Pow(32, 8) / 134e6
+	if d := est.Median.Seconds() - math.Ln2*mean; math.Abs(d) > 1 {
+		t.Errorf("median = %v", est.Median)
+	}
+	if est.P90 <= est.Median {
+		t.Error("p90 must exceed median")
+	}
+	// Two alternatives of equal length halve the expected time.
+	two := EstimateVanity([]string{"nexisltd", "nexisweb"}, 134e6)
+	if r := est.Median.Seconds() / two.Median.Seconds(); math.Abs(r-2) > 0.01 {
+		t.Errorf("two prefixes speedup = %v", r)
+	}
+	for d, want := range map[time.Duration]string{30 * time.Second: "30 s", 45 * time.Minute: "45 min", 3 * time.Hour: "3.0 hours", 72 * time.Hour: "3.0 days"} {
+		if got := HumanDuration(d); got != want {
+			t.Errorf("HumanDuration(%v) = %q, want %q", d, got, want)
+		}
 	}
 }

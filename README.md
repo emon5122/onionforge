@@ -219,7 +219,7 @@ One OnionForge instance can publish any number of services. Use one instance wit
 services:
   <name>:                      # required; identifies the onion identity
     target: http://host:port   # required; http:// or https://, optional base path
-    prefix: abc                # optional vanity prefix (a-z, 2-7, at most 10 characters)
+    prefix: abc                # optional vanity prefix (a-z, 2-7, max 10 chars), or a list: [abc, xyz]
     host_header: preserve      # optional: preserve | upstream | <literal host>
     rewrite_redirects: false   # optional: rewrite Location headers to the onion address
     tls:                       # optional; https:// targets only
@@ -234,6 +234,10 @@ security:
 
 logging:
   access_log: false                # log one line per request
+
+vanity:
+  background: auto                 # auto: prefixes of 7+ chars are searched without blocking startup
+  threads: 0                       # CPU threads for vanity searches (0 = all)
 ```
 
 **Service names** are lowercase letters, digits, `-` and `_` (up to 63 characters). The name is the identity: `/var/lib/tor/<name>` holds that service's keys.
@@ -306,24 +310,61 @@ services:
     target: http://radiolens:3000
 ```
 
-On first start, OnionForge runs the bundled `onion-vanity-address` generator (using all CPU cores) until it finds a key whose address starts with the prefix. Without a prefix it creates a random v3 identity.
+On first start, OnionForge runs the bundled `onion-vanity-address` generator until it finds a key whose address starts with the prefix. Without a prefix it creates a random v3 identity.
 
 A vanity search happens **once per identity**. After that the key is stored and reused forever.
 
-Each character multiplies the expected search time by 32:
+### How long it takes
 
-| Prefix length | Typical time |
-|---|---|
-| 1–5 | seconds |
-| 6 | under a minute |
-| 7 | minutes |
-| 8 | hours |
-| 9 | days |
-| 10 (maximum) | months |
+Every v3 onion address is 56 characters plus `.onion`, because the address is the public key. You can only choose how it **starts**. Each extra character multiplies the expected search time by 32. Typical times on a 16-core machine (about 134 million keys per second):
 
-Prefixes use the onion alphabet `a–z` and `2–7`, so `0`, `1`, `8`, `9` and `-` are impossible. For prefixes of 8 or more characters, generate the key on a powerful machine and [restore it](#backup-and-restore) into the volume.
+| Prefix length | Example | Median | 90% chance within |
+|---|---|---|---|
+| 5 | `nexis…` | < 1 s | 1 s |
+| 6 | `nexisl…` | 6 s | 20 s |
+| 7 | `nexisbd…` | 3 min | 10 min |
+| 8 | `nexisltd…` | 1.5 hours | 5 hours |
+| 9 | `nexisltd2…` | 2 days | 7 days |
+| 10 (maximum) | `nexisltd2x…` | 2 months | 7 months |
 
-The generator's output isn't trusted blindly: OnionForge re-derives the public key and address from the secret key, checks the prefix, and after Tor starts checks that Tor's `hostname` file matches. Tor's `hostname` file is authoritative.
+OnionForge measures the speed on your machine and logs its own estimate when a search starts. Prefixes use the onion alphabet `a–z` and `2–7`, so `0`, `1`, `8`, `9` and `-` are impossible. Every v3 address ends in `d`.
+
+### Several alternatives
+
+Give a list, and the first address matching **any** of them wins. Two prefixes of the same length halve the expected time:
+
+```yaml
+services:
+  site:
+    prefix: [nexisltd, nexisweb]
+    target: https://nexisltd.com
+```
+
+### Long searches run in the background
+
+A search taking hours or days doesn't hold up the rest of the gateway. With the default `vanity.background: auto`, prefixes of **7 or more characters** are searched in the background:
+
+- **Other services first:** every other service starts and is published immediately.
+- **Automatic publishing:** when the key is found, the service is published automatically. Tor reloads its configuration (no restart) and Caddy reloads gracefully.
+- **Low priority:** the search runs at the lowest CPU priority (`nice 19`), so it never slows down Tor or Caddy.
+- **Progress:** logs show the measured speed, the expected time and periodic updates. `onionforge list` shows the running search:
+
+```
+SERVICE  STATUS                                                                        ONION  TARGET
+site     searching for 'nexisltd', running 25 min, expected 1.5 hours (median) / ...   -      https://nexisltd.com
+```
+
+```yaml
+vanity:
+  background: auto   # auto (default) | always | never
+  threads: 0         # CPU threads for the search; 0 = all CPUs
+```
+
+Searches are memoryless: restarting the container loses no expected progress, so there's no checkpointing. Changing or removing the prefix (with a reload) cancels the search. For very long searches you can also generate the key on a bigger machine with `onion-vanity-address` and [import it](#backup-and-restore). OnionForge then uses it immediately.
+
+### Trust
+
+The generator's output isn't trusted blindly. OnionForge re-derives the public key and address from the secret key and checks them against the requested prefixes. After Tor starts, it checks that Tor's `hostname` file matches; that file is authoritative.
 
 ---
 

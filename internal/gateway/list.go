@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/emon5122/onionforge/internal/config"
 	"github.com/emon5122/onionforge/internal/identity"
@@ -17,6 +18,12 @@ import (
 // services. Only hostnames are shown, never key material.
 func List(p Paths, w io.Writer) error {
 	cfg, cfgErr := config.Load(p.Config)
+	pending := map[string]PendingState{}
+	if st, err := ReadState(p.StateFile()); err == nil {
+		for _, ps := range st.Pending {
+			pending[ps.Name] = ps
+		}
+	}
 
 	names := map[string]bool{}
 	if cfg != nil {
@@ -53,7 +60,7 @@ func List(p Paths, w io.Writer) error {
 			hostname = id.Hostname
 			if svc != nil {
 				status = "active"
-				if svc.Prefix != "" && !identity.HasPrefix(id.Hostname, svc.Prefix) {
+				if !svc.Prefix.Matches(id.Hostname) {
 					status = "active (prefix mismatch)"
 				}
 			} else {
@@ -64,6 +71,9 @@ func List(p Paths, w io.Writer) error {
 				continue
 			}
 			status = "pending (no identity yet)"
+			if ps, ok := pending[name]; ok {
+				status = describePending(ps)
+			}
 		default:
 			status = "error: " + err.Error()
 		}
@@ -80,4 +90,18 @@ func List(p Paths, w io.Writer) error {
 		fmt.Fprintf(w, "\nNote: configuration could not be loaded, showing identities only:\n%v\n", cfgErr)
 	}
 	return nil
+}
+
+func describePending(ps PendingState) string {
+	s := "searching for '" + strings.Join(ps.Prefixes, " | ") + "'"
+	if ps.Started.IsZero() {
+		return s
+	}
+	s += ", running " + identity.HumanDuration(time.Since(ps.Started))
+	if ps.MedianSeconds > 0 {
+		s += fmt.Sprintf(", expected %s (median) / %s (90%%)",
+			identity.HumanDuration(time.Duration(ps.MedianSeconds*float64(time.Second))),
+			identity.HumanDuration(time.Duration(ps.P90Seconds*float64(time.Second))))
+	}
+	return s
 }

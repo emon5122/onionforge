@@ -77,11 +77,14 @@ func run(args []string) int {
 		}
 		fmt.Printf("Configuration %s is valid (%d service(s)):\n", cfg.Path, len(cfg.Services))
 		for _, s := range cfg.SortedServices() {
-			prefix := s.Prefix
-			if prefix == "" {
+			prefix := s.Prefix.String()
+			switch {
+			case prefix == "":
 				prefix = "(random)"
+			case cfg.Background(s):
+				prefix += " (background search)"
 			}
-			fmt.Printf("  %-20s prefix=%-12s target=%s host_header=%s\n", s.Name, prefix, s.Target, s.EffectiveHostHeader())
+			fmt.Printf("  %-20s prefix=%-14s target=%s host_header=%s\n", s.Name, prefix, s.Target, s.EffectiveHostHeader())
 		}
 		return 0
 	case "list", "status":

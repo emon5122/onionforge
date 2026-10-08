@@ -49,6 +49,9 @@ type Gateway struct {
 	caddy *process
 	exits chan exitEvent
 
+	jobs      map[string]*vanityJob
+	jobEvents chan jobEvent
+
 	torBootstrapped atomic.Bool
 	state           State
 }
@@ -76,7 +79,8 @@ func Run(p Paths, log *Logger, version string) error {
 		}
 	}()
 
-	g := &Gateway{paths: p, log: log, exits: make(chan exitEvent, 4)}
+	g := &Gateway{paths: p, log: log, exits: make(chan exitEvent, 4),
+		jobs: map[string]*vanityJob{}, jobEvents: make(chan jobEvent, 8)}
 	g.state = State{
 		Status:      StatusStarting,
 		PID:         os.Getpid(),
@@ -123,7 +127,7 @@ func (g *Gateway) start(ctx context.Context) error {
 	}
 
 	// 4. Identities.
-	ids, err := ensureIdentities(ctx, p, cfg, log)
+	ids, pending, err := ensureIdentities(ctx, p, cfg, log)
 	if err != nil {
 		return err
 	}
@@ -180,6 +184,9 @@ func (g *Gateway) start(ctx context.Context) error {
 		return fmt.Errorf("writing state: %w", err)
 	}
 	g.printServices()
+
+	// 12. Long vanity searches continue in the background.
+	g.syncJobs(ctx, cfg, pending)
 	return nil
 }
 
@@ -199,6 +206,8 @@ func (g *Gateway) loop(ctx context.Context, hup <-chan struct{}) error {
 				}
 				g.log.Errorf("Reload failed, keeping previous configuration:\n%v", err)
 			}
+		case ev := <-g.jobEvents:
+			g.handleJobEvent(ctx, ev)
 		case ev := <-g.exits:
 			if ctx.Err() != nil {
 				continue
@@ -239,6 +248,9 @@ func (g *Gateway) watchTor(line string) {
 func (g *Gateway) writeTorrc(cfg *config.Config) error {
 	var services []tor.Service
 	for _, svc := range cfg.SortedServices() {
+		if _, ok := g.identities[svc.Name]; !ok {
+			continue // vanity search still running
+		}
 		services = append(services, tor.Service{Name: svc.Name, Dir: g.paths.ServiceDir(svc.Name)})
 	}
 	torrc := tor.Generate(tor.Options{
@@ -265,7 +277,10 @@ func (g *Gateway) waitHostnames(ctx context.Context, cfg *config.Config) error {
 	for {
 		pending := 0
 		for _, svc := range cfg.SortedServices() {
-			id := g.identities[svc.Name]
+			id, ok := g.identities[svc.Name]
+			if !ok {
+				continue
+			}
 			got, err := identity.ReadHostname(id.Dir)
 			if err != nil || got == "" {
 				pending++
@@ -296,7 +311,9 @@ func (g *Gateway) waitHostnames(ctx context.Context, cfg *config.Config) error {
 func (g *Gateway) routes(cfg *config.Config) []caddy.Route {
 	var routes []caddy.Route
 	for _, svc := range cfg.SortedServices() {
-		routes = append(routes, caddy.Route{Hostname: g.identities[svc.Name].Hostname, Service: svc})
+		if id, ok := g.identities[svc.Name]; ok {
+			routes = append(routes, caddy.Route{Hostname: id.Hostname, Service: svc})
+		}
 	}
 	return routes
 }
@@ -364,15 +381,22 @@ func (g *Gateway) waitCaddy(ctx context.Context) error {
 	}
 }
 
-// reload re-reads onionforge.yml. Caddy is reloaded gracefully; Tor is only
-// reconfigured when the set of onion services changed. Identities of
-// existing services are always kept, so changing a target keeps the address.
+// reload re-reads onionforge.yml and applies it.
 func (g *Gateway) reload(ctx context.Context) error {
 	cfg, err := config.Load(g.paths.Config)
 	if err != nil {
 		return err
 	}
-	ids, err := ensureIdentities(ctx, g.paths, cfg, g.log)
+	return g.apply(ctx, cfg)
+}
+
+// apply makes cfg the running configuration. Caddy is reloaded gracefully;
+// Tor is only reconfigured (SIGHUP, no restart) when the set of published
+// onion services changed. Identities of existing services are always kept,
+// so changing a target keeps the address. It is used for SIGHUP reloads and
+// when a background vanity search completes.
+func (g *Gateway) apply(ctx context.Context, cfg *config.Config) error {
+	ids, pending, err := ensureIdentities(ctx, g.paths, cfg, g.log)
 	if err != nil {
 		return err
 	}
@@ -389,12 +413,9 @@ func (g *Gateway) reload(ctx context.Context) error {
 		return err
 	}
 
-	torChanged := !sameServices(g.cfg, cfg)
-	if torChanged {
-		var added []string
+	if !sameKeys(oldIDs, ids) {
 		for name, id := range ids {
 			if _, ok := oldIDs[name]; !ok {
-				added = append(added, name)
 				os.Remove(id.Dir + "/" + identity.HostnameFile)
 			}
 		}
@@ -422,21 +443,22 @@ func (g *Gateway) reload(ctx context.Context) error {
 		return fmt.Errorf("reloading Caddy: %w", err)
 	}
 	g.cfg = cfg
+	g.syncJobs(ctx, cfg, pending)
 	g.updateServiceState()
 	if err := writeState(g.paths.StateFile(), &g.state); err != nil {
 		return err
 	}
-	g.log.Infof("Reload complete")
+	g.log.Infof("Configuration applied")
 	g.printServices()
 	return nil
 }
 
-func sameServices(a, b *config.Config) bool {
-	if len(a.Services) != len(b.Services) {
+func sameKeys(a, b map[string]*identity.Identity) bool {
+	if len(a) != len(b) {
 		return false
 	}
-	for name := range a.Services {
-		if _, ok := b.Services[name]; !ok {
+	for name := range a {
+		if _, ok := b[name]; !ok {
 			return false
 		}
 	}
@@ -455,14 +477,25 @@ func removedServices(old, cur *config.Config) []string {
 
 func (g *Gateway) updateServiceState() {
 	g.state.Services = nil
+	g.state.Pending = nil
 	for _, svc := range g.cfg.SortedServices() {
-		id := g.identities[svc.Name]
-		g.state.Services = append(g.state.Services, ServiceState{
-			Name:     svc.Name,
-			Hostname: id.Hostname,
-			Target:   svc.Target,
-			Dir:      id.Dir,
-		})
+		if id, ok := g.identities[svc.Name]; ok {
+			g.state.Services = append(g.state.Services, ServiceState{
+				Name:     svc.Name,
+				Hostname: id.Hostname,
+				Target:   svc.Target,
+				Dir:      id.Dir,
+			})
+			continue
+		}
+		ps := PendingState{Name: svc.Name, Prefixes: svc.Prefix, Target: svc.Target}
+		if job, ok := g.jobs[svc.Name]; ok {
+			ps.Started = job.started
+			ps.KeysPerSecond = job.rate
+			ps.MedianSeconds = job.estimate.Median.Seconds()
+			ps.P90Seconds = job.estimate.P90.Seconds()
+		}
+		g.state.Pending = append(g.state.Pending, ps)
 	}
 }
 
@@ -471,6 +504,10 @@ func (g *Gateway) printServices() {
 	b.WriteString("\nServices:\n")
 	for _, s := range g.state.Services {
 		fmt.Fprintf(&b, "\n  %s\n    Onion:  http://%s\n    Target: %s\n", s.Name, s.Hostname, s.Target)
+	}
+	for _, s := range g.state.Pending {
+		fmt.Fprintf(&b, "\n  %s\n    Onion:  (searching for vanity prefix '%s'; published automatically when found)\n    Target: %s\n",
+			s.Name, strings.Join(s.Prefixes, " | "), s.Target)
 	}
 	b.WriteString("\n" + rule + " OnionForge is ready\n" + rule)
 	g.log.Raw(b.String())

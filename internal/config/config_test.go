@@ -46,7 +46,7 @@ services:
 	if len(svcs) != 3 || svcs[0].Name != "api" || svcs[1].Name != "company" || svcs[2].Name != "web" {
 		t.Fatalf("unexpected services: %+v", svcs)
 	}
-	if svcs[2].Prefix != "web" {
+	if svcs[2].Prefix.String() != "web" {
 		t.Errorf("prefix not lowercased: %q", svcs[2].Prefix)
 	}
 	if got := svcs[0].EffectiveHostHeader(); got != HostPreserve {
@@ -125,5 +125,63 @@ func TestLoad(t *testing.T) {
 func TestExampleConfig(t *testing.T) {
 	if _, err := Load("../../onionforge.example.yml"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestPrefixList(t *testing.T) {
+	cfg := mustParse(t, `
+vanity:
+  threads: 4
+services:
+  site:
+    prefix: [NexisLtd, nexisweb]
+    target: https://example.com
+  quick:
+    prefix: abc
+    target: http://a:1
+  plain:
+    target: http://b:1
+`)
+	site, quick, plain := cfg.Services["site"], cfg.Services["quick"], cfg.Services["plain"]
+	if got := site.Prefix.String(); got != "nexisltd | nexisweb" {
+		t.Errorf("prefixes = %q", got)
+	}
+	if site.Prefix.Shortest() != 8 {
+		t.Errorf("shortest = %d", site.Prefix.Shortest())
+	}
+	if !site.Prefix.Matches("nexiswebxyz.onion") || site.Prefix.Matches("other.onion") {
+		t.Error("Matches wrong")
+	}
+	if !plain.Prefix.Matches("anything.onion") {
+		t.Error("no prefix must match anything")
+	}
+	if !cfg.Background(site) || cfg.Background(quick) || cfg.Background(plain) {
+		t.Error("auto background: 8 chars in background, 3 chars inline, none never")
+	}
+	cfg.Vanity.Background = VanityAlways
+	if !cfg.Background(quick) || cfg.Background(plain) {
+		t.Error("always: every prefixed service in background")
+	}
+	cfg.Vanity.Background = VanityNever
+	if cfg.Background(site) {
+		t.Error("never: no background")
+	}
+	if cfg.Vanity.Threads != 4 {
+		t.Error("threads not parsed")
+	}
+}
+
+func TestVanityValidation(t *testing.T) {
+	for _, tt := range []struct{ yaml, want string }{
+		{"vanity:\n  background: sometimes\nservices:\n  a:\n    target: http://a:1", "vanity.background"},
+		{"vanity:\n  threads: -1\nservices:\n  a:\n    target: http://a:1", "vanity.threads"},
+		{"services:\n  a:\n    prefix: [ok, bad1]\n    target: http://a:1", "a-z and 2-7"},
+		{"services:\n  a:\n    prefix: ['']\n    target: http://a:1", "empty prefix"},
+		{"services:\n  a:\n    prefix: {x: y}\n    target: http://a:1", "string or a list"},
+		{"services:\n  a:\n    prefix: [web, api]\n    target: http://a:1\n  b:\n    prefix: api\n    target: http://b:1", "same prefix"},
+	} {
+		if msg := parseErr(t, tt.yaml); !strings.Contains(msg, tt.want) {
+			t.Errorf("error %q does not contain %q", msg, tt.want)
+		}
 	}
 }

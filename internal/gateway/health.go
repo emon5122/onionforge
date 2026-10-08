@@ -35,7 +35,7 @@ func Healthcheck(p Paths) error {
 	if err := checkProcess(st.CaddyPID, "caddy"); err != nil {
 		return err
 	}
-	if len(st.Services) == 0 {
+	if len(st.Services)+len(st.Pending) == 0 {
 		return errors.New("no services initialized")
 	}
 	for _, s := range st.Services {

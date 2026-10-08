@@ -25,6 +25,7 @@ type State struct {
 	Listener        string         `json:"listener"`
 	AdminSocket     string         `json:"admin_socket"`
 	Services        []ServiceState `json:"services"`
+	Pending         []PendingState `json:"pending,omitempty"`
 	Updated         time.Time      `json:"updated"`
 }
 
@@ -34,6 +35,17 @@ type ServiceState struct {
 	Hostname string `json:"hostname"`
 	Target   string `json:"target"`
 	Dir      string `json:"dir"`
+}
+
+// PendingState describes a service waiting for its vanity search.
+type PendingState struct {
+	Name          string    `json:"name"`
+	Prefixes      []string  `json:"prefixes"`
+	Target        string    `json:"target"`
+	Started       time.Time `json:"started,omitempty"`
+	KeysPerSecond float64   `json:"keys_per_second,omitempty"`
+	MedianSeconds float64   `json:"median_seconds,omitempty"`
+	P90Seconds    float64   `json:"p90_seconds,omitempty"`
 }
 
 func writeState(path string, s *State) error {

@@ -9,7 +9,7 @@ services:
 
   # Docker service on the same network. The backend needs no published ports.
   web:
-    prefix: web                       # optional vanity prefix (a-z, 2-7)
+    prefix: web                       # optional vanity prefix (a-z, 2-7), or a list: [web, www]
     target: http://frontend:3000
 
   api:
@@ -38,6 +38,10 @@ services:
 #   allow_private_targets: false      # IP literals in 10/8, 172.16/12, 192.168/16, ...
 #   allow_loopback_targets: false     # 127.0.0.0/8, ::1, localhost
 #   allow_link_local_targets: false   # 169.254.0.0/16 (cloud metadata), fe80::/10
+
+# vanity:
+#   background: auto                  # prefixes of 7+ chars are searched in the background
+#   threads: 0                        # CPU threads for vanity searches (0 = all)
 
 # logging:
 #   access_log: false                 # one log line per request when true

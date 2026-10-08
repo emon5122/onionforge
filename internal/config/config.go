@@ -29,6 +29,7 @@ const (
 type Config struct {
 	Security Security            `yaml:"security"`
 	Logging  Logging             `yaml:"logging"`
+	Vanity   Vanity              `yaml:"vanity"`
 	Services map[string]*Service `yaml:"services"`
 
 	// Path is the file the configuration was read from.
@@ -48,10 +49,81 @@ type Logging struct {
 	AccessLog bool `yaml:"access_log"`
 }
 
+// Vanity background modes.
+const (
+	VanityAuto   = "auto"
+	VanityAlways = "always"
+	VanityNever  = "never"
+)
+
+// BackgroundThreshold is the shortest prefix length that the "auto" mode
+// searches in the background (7 characters take minutes, 8 hours, 9 days).
+const BackgroundThreshold = 7
+
+// Vanity controls vanity address generation.
+type Vanity struct {
+	// Threads limits the CPU threads used by the search; 0 uses all CPUs.
+	Threads int `yaml:"threads"`
+	// Background selects whether searches block startup: "auto" (default)
+	// runs searches for prefixes of 7+ characters in the background while
+	// other services start, "always" never blocks, "never" always blocks.
+	Background string `yaml:"background"`
+}
+
+// Prefixes is one vanity prefix or a list of alternatives. In YAML it
+// accepts either a string or a sequence of strings; the search stops at the
+// first address matching any of them.
+type Prefixes []string
+
+// UnmarshalYAML accepts a scalar or a sequence.
+func (p *Prefixes) UnmarshalYAML(n *yaml.Node) error {
+	switch n.Kind {
+	case yaml.ScalarNode:
+		if n.Tag == "!!null" || n.Value == "" {
+			*p = nil
+			return nil
+		}
+		*p = Prefixes{n.Value}
+		return nil
+	case yaml.SequenceNode:
+		var list []string
+		if err := n.Decode(&list); err != nil {
+			return err
+		}
+		*p = list
+		return nil
+	}
+	return fmt.Errorf("line %d: prefix must be a string or a list of strings", n.Line)
+}
+
+// Shortest returns the length of the shortest prefix.
+func (p Prefixes) Shortest() int {
+	n := 0
+	for i, s := range p {
+		if i == 0 || len(s) < n {
+			n = len(s)
+		}
+	}
+	return n
+}
+
+// Matches reports whether an onion hostname starts with any prefix.
+func (p Prefixes) Matches(hostname string) bool {
+	for _, s := range p {
+		if strings.HasPrefix(hostname, s) {
+			return true
+		}
+	}
+	return len(p) == 0
+}
+
+// String renders the prefixes for logs.
+func (p Prefixes) String() string { return strings.Join(p, " | ") }
+
 // Service maps one onion identity to one upstream.
 type Service struct {
-	Prefix string `yaml:"prefix"`
-	Target string `yaml:"target"`
+	Prefix Prefixes `yaml:"prefix"`
+	Target string   `yaml:"target"`
 	// HostHeader is "preserve" (send the .onion host), "upstream" (send the
 	// target's host) or a literal host. Empty selects a default based on the
 	// target; see EffectiveHostHeader.
@@ -92,6 +164,21 @@ func (s *Service) EffectiveHostHeader() string {
 		return HostUpstream
 	}
 	return HostPreserve
+}
+
+// Background reports whether a missing identity for svc is generated in
+// the background rather than before startup.
+func (c *Config) Background(svc *Service) bool {
+	if len(svc.Prefix) == 0 {
+		return false
+	}
+	switch c.Vanity.Background {
+	case VanityAlways:
+		return true
+	case VanityNever:
+		return false
+	}
+	return svc.Prefix.Shortest() >= BackgroundThreshold
 }
 
 // SortedServices returns services ordered by name.
@@ -215,12 +302,23 @@ func (c *Config) validate() error {
 		}
 		svc.Name = name
 
-		if svc.Prefix != "" {
-			lower := strings.ToLower(svc.Prefix)
-			if err := validation.Prefix(lower); err != nil {
-				add("Service '%s': %v", name, err)
-			} else {
-				svc.Prefix = lower
+		if len(svc.Prefix) > 0 {
+			seen := map[string]bool{}
+			for i, raw := range svc.Prefix {
+				lower := strings.ToLower(strings.TrimSpace(raw))
+				if lower == "" {
+					add("Service '%s': empty prefix", name)
+					continue
+				}
+				if err := validation.Prefix(lower); err != nil {
+					add("Service '%s': %v", name, err)
+					continue
+				}
+				svc.Prefix[i] = lower
+				if seen[lower] {
+					continue
+				}
+				seen[lower] = true
 				if other, dup := prefixes[lower]; dup {
 					add("Services '%s' and '%s' request the same prefix %q: prefixes must be unique", other, name, lower)
 				}
@@ -254,6 +352,15 @@ func (c *Config) validate() error {
 		if svc.TLS.InsecureSkipVerify && svc.TLS.CAFile != "" {
 			add("Service '%s': tls.insecure_skip_verify and tls.ca_file are mutually exclusive", name)
 		}
+	}
+
+	switch c.Vanity.Background {
+	case "", VanityAuto, VanityAlways, VanityNever:
+	default:
+		add("vanity.background must be \"auto\", \"always\" or \"never\" (got %q)", c.Vanity.Background)
+	}
+	if c.Vanity.Threads < 0 {
+		add("vanity.threads must be 0 (all CPUs) or a positive number")
 	}
 
 	if len(problems) > 0 {
