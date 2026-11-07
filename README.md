@@ -659,7 +659,15 @@ docker buildx build --platform linux/amd64,linux/arm64 -t emon5122/onionforge:la
 
 - **`ci.yml`** runs vet, unit tests and the Docker integration suites on every push to `main` and every pull request. The real-Tor suite also runs, but it doesn't block.
 - **`release-please.yml`** keeps a release PR open based on [Conventional Commits](https://www.conventionalcommits.org) (`feat:`, `fix:`, `feat!:`). Merging that PR updates `CHANGELOG.md` and creates the `vX.Y.Z` tag and GitHub release.
-- **`release.yml`** runs on every `v*.*.*` tag. It builds the `linux/amd64` + `linux/arm64` image and pushes `emon5122/onionforge:X.Y.Z`, `:X.Y` and `:latest` (plus `:X` from 1.0 on). To rebuild an existing tag, run it manually from the Actions tab; that doesn't move `latest`.
+- **`release.yml`** runs on every `v*.*.*` tag. It builds the `linux/amd64` + `linux/arm64` image and pushes `emon5122/onionforge:X.Y.Z`, `:X.Y` and `:latest` (plus `:X` from 1.0 on; prerelease tags such as `v1.2.0-rc.1` never get `latest`). To rebuild an existing tag, run it manually from the Actions tab; that doesn't move `latest`. A newer tag cancels a build that is still running. Pushes to `main` never build or push an image.
+
+### Runbook
+
+- **Release:** merge the open release-please PR. That creates the `vX.Y.Z` tag, and the tag triggers `release.yml`, which pushes the image to Docker Hub.
+- **Deploy:** hosts run `emon5122/onionforge:latest` (see `docker-compose.example.yml`). Hosts with DockWarden (`dockwarden.enable=true`) pull the new `:latest` on their own. Otherwise run `docker compose pull onionforge && docker compose up -d onionforge`.
+- **Roll back:** pin the previous version in the compose file (`image: emon5122/onionforge:X.Y.Z`), then run `docker compose up -d onionforge`. Identities in `/var/lib/tor` are unaffected.
+- **Migrations:** none. The container does every startup step itself: it validates the config, creates missing identities, and starts Tor and Caddy.
+- **Secrets** (repository secrets, listed by name below): `RELEASE_PLEASE_TOKEN`, `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`.
 
 Repository secrets:
 
