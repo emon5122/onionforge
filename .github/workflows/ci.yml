@@ -1,15 +1,16 @@
 name: ci
 
 on:
-  push:
-    branches: [main]
   pull_request:
+  workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
 
 jobs:
   test:
+    if: github.event_name != 'pull_request' || startsWith(github.head_ref, 'release-please--')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -28,6 +29,7 @@ jobs:
         run: tests/run.sh config multi-service proxy persistence vanity
 
   tor-e2e:
+    if: github.event_name != 'pull_request' || startsWith(github.head_ref, 'release-please--')
     # Real Tor network round-trip; informative, not gating (the Tor network
     # can be slow to bootstrap on CI runners).
     runs-on: ubuntu-latest

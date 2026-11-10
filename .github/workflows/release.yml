@@ -18,7 +18,12 @@ env:
   IMAGE: emon5122/onionforge
 
 jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+    secrets: inherit
+
   image:
+    needs: ci
     runs-on: ubuntu-latest
     # Job-level, so a newer tag cancels an older build while release-please
     # or docs commits on main never touch a running build.
